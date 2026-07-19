@@ -59,16 +59,13 @@ struct Snapshot {
 
 pub struct Workspace {
     pub workspace_id: String,
-    /// Set when this call created the workspace: `workspace create` always
-    /// makes a starter tab alongside it, which we don't use (every review
-    /// gets its own tab via create_tab). herdr refuses to close a
-    /// workspace's *last* tab, so this can't be closed here - the caller
-    /// must close it after adding a real tab, once it's no longer the last.
+    /// Set when this call created the workspace: `workspace create` makes an
+    /// unused starter tab alongside it. herdr won't close a workspace's last
+    /// tab, so the caller must close this only after adding a real one.
     pub starter_tab_id: Option<String>,
 }
 
-/// Finds the workspace with the given label, creating it if it doesn't
-/// exist yet. This is the shared "review space" all PR tabs get created in.
+/// Finds the workspace with the given label, creating it if needed.
 pub fn ensure_workspace(label: &str) -> Result<Workspace> {
     let result = run_herdr_json(&["api", "snapshot"])?;
     let snapshot: Snapshot = serde_json::from_value(
@@ -107,17 +104,13 @@ pub fn ensure_workspace(label: &str) -> Result<Workspace> {
     })
 }
 
-/// Closes a tab. Not wrapped in a broader "best-effort, ignore failures"
-/// helper: a silently-swallowed failure here is exactly how the starter-tab
-/// cleanup bug (closing a workspace's only tab, which herdr rejects) went
-/// unnoticed - callers that want it best-effort should log the error
-/// themselves, not discard it.
+/// Returns Err rather than swallowing failures itself; callers that want
+/// best-effort should log the error rather than discard it.
 pub fn close_tab(tab_id: &str) -> Result<()> {
     run_herdr_ok(&["tab", "close", tab_id])
 }
 
-/// Creates a new tab in the given workspace, cwd'd into the PR worktree, and
-/// returns the tab's id and its root pane's id.
+/// Creates a tab cwd'd into the PR worktree; returns its id and root pane id.
 pub fn create_tab(workspace_id: &str, cwd: &Path, label: &str) -> Result<Pane> {
     let cwd_str = cwd.to_str().context("worktree path is not valid UTF-8")?;
     let result = run_herdr_json(&[
@@ -146,17 +139,15 @@ pub fn create_tab(workspace_id: &str, cwd: &Path, label: &str) -> Result<Pane> {
     Ok(Pane { tab_id, pane_id })
 }
 
-/// Types `command` into the pane's shell followed by Enter. Fire-and-forget:
-/// this returns as soon as herdr accepts the command, not when it finishes.
+/// Types `command` into the pane's shell + Enter. Fire-and-forget: returns
+/// once herdr accepts it, not once it finishes.
 pub fn run_in_pane(pane_id: &str, command: &str) -> Result<()> {
     run_herdr_ok(&["pane", "run", pane_id, command])
 }
 
-/// Writes literal text into the pane without submitting it. Used to seed a
-/// Claude Code session's first message: passing the prompt as a CLI argument
-/// to `claude` is not reliably picked up as the initial turn in interactive
-/// mode (verified empirically - it launches but never processes it), but
-/// typing it in and submitting separately works the same as a human doing it.
+/// Writes text into the pane without submitting it. `claude`'s CLI prompt
+/// argument isn't reliably picked up as the first turn in interactive mode,
+/// so the prompt is typed in and submitted separately instead.
 pub fn send_text(pane_id: &str, text: &str) -> Result<()> {
     run_herdr_ok(&["pane", "send-text", pane_id, text])
 }
@@ -165,14 +156,10 @@ pub fn send_enter(pane_id: &str) -> Result<()> {
     run_herdr_ok(&["pane", "send-keys", pane_id, "enter"])
 }
 
-/// Blocks (up to `timeout`) until `text` appears in the pane's rendered
-/// output. Used instead of `wait_agent_status(..., "idle", ...)` to detect
-/// that Claude Code's TUI has actually finished rendering after launch:
-/// agent_status reports "idle" for the plain shell the moment `pane run`'s
-/// `claude ...` command line is submitted, before Claude Code itself has
-/// started - sending input at that point lands on a not-yet-ready terminal
-/// and gets silently dropped (verified empirically). Matching on UI text
-/// that only exists once Claude Code has rendered avoids that race.
+/// Blocks until `text` appears in the pane's output. Used over
+/// `agent_status: idle` for launch-readiness: that status fires for the
+/// plain shell the instant the `claude ...` command is submitted, before
+/// Claude Code itself has started - input sent then gets silently dropped.
 pub fn wait_for_text(pane_id: &str, text: &str, timeout: Duration) -> Result<()> {
     run_herdr_ok(&[
         "wait",
@@ -201,20 +188,12 @@ fn agent_status(pane_id: &str) -> Result<String> {
     Ok(parsed.pane.agent_status.unwrap_or_else(|| "unknown".to_string()))
 }
 
-/// Polls (rather than using `herdr wait agent-status`) until the turn in
-/// `pane_id` finishes, up to `timeout`.
-///
-/// Claude Code reports idle/working/blocked/done as genuinely distinct
-/// values, not just "busy or not" - and interactive-mode completion lands on
-/// "done", not "idle" (verified empirically: a completed review sat at
-/// `agent_status: "done"` while a wait on "idle" hung indefinitely).
-/// `wait agent-status --status X` also only fires on a transition *into* X;
-/// if that transition already happened before the wait call started
-/// listening, it hangs until X recurs, which may be never. Polling avoids
-/// both problems: it only needs "working" to have been seen at some point,
-/// then treats either "idle" or "done" as finished, and surfaces "blocked"
-/// (e.g. an unanswered permission prompt) as an immediate error rather than
-/// silently waiting out the full timeout.
+/// Polls until the turn in `pane_id` finishes (up to `timeout`), rather than
+/// using `herdr wait agent-status`: that only fires on a transition *into* a
+/// given status, so it can miss one that already happened and hang, and
+/// interactive completion lands on "done", not "idle". Polling treats either
+/// as finished once "working" has been seen, and errors immediately on
+/// "blocked" (e.g. an unanswered permission prompt) instead of timing out.
 pub fn wait_until_finished(pane_id: &str, timeout: Duration) -> Result<()> {
     let deadline = Instant::now() + timeout;
     let mut seen_working = false;

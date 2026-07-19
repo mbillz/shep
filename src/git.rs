@@ -20,15 +20,10 @@ fn run_git(cwd: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-/// Ensures a base clone of owner/repo exists under clone_root, cloning it if
-/// necessary. Reviews are done in throwaway worktrees off of this clone so
-/// each PR gets its own checkout without repeated full clones.
-///
-/// Clones with `--filter=blob:none` (a partial clone): the full commit graph
-/// is fetched, so `git log`/`merge-base`/`diff --stat` all work correctly,
-/// but historical file *contents* are skipped and fetched lazily on demand
-/// as they're actually checked out. For a large, long-lived repo this avoids
-/// downloading years of blob history just to review one PR.
+/// Ensures a base clone of owner/repo exists under clone_root; PR worktrees
+/// branch off of this instead of a fresh clone per review. Partial clone
+/// (`--filter=blob:none`): full commit graph, but blob contents are fetched
+/// lazily on checkout instead of downloading the repo's whole history.
 pub fn ensure_base_clone(clone_root: &Path, owner: &str, repo: &str) -> Result<PathBuf> {
     let repo_path = clone_root.join(owner).join(repo);
     if repo_path.join(".git").exists() {
@@ -56,15 +51,10 @@ pub fn ensure_base_clone(clone_root: &Path, owner: &str, repo: &str) -> Result<P
     Ok(repo_path)
 }
 
-/// Fetches the PR's head into a shepherd-owned ref namespace and ensures a
-/// worktree checked out (detached) at that ref exists under worktree_root,
-/// creating or updating it as needed. Returns the worktree path.
-///
-/// The fetch target is deliberately outside `refs/heads/*`: a plain branch
-/// ref can't be re-fetched while it's checked out in an existing worktree
-/// (git refuses "checked out at ..."), which is exactly the re-review case
-/// (same PR, new push). A non-heads ref plus a detached checkout sidesteps
-/// that restriction entirely.
+/// Fetches the PR's head and ensures a detached worktree at that ref exists
+/// under worktree_root. Uses a non-`refs/heads/*` ref: a branch ref can't be
+/// re-fetched while checked out in an existing worktree (the re-review
+/// case), and a detached checkout sidesteps that.
 pub fn ensure_pr_worktree(
     base_repo: &Path,
     worktree_root: &Path,

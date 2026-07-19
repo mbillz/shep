@@ -3,15 +3,11 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::path::Path;
 
-/// Marks `repo_path` as a trusted project in ~/.claude.json so Claude Code
-/// launched there (interactively, in a herdr pane) doesn't block on the
-/// first-run workspace-trust dialog. Claude Code resolves trust for a git
-/// worktree against its main repo's path, so this only ever needs to run
-/// once per base clone, not per PR worktree.
-///
-/// Only the `hasTrustDialogAccepted` field is touched; any existing entry
-/// (and the rest of the file) is left as-is. Writes atomically (temp file +
-/// rename) since this is shared global Claude Code state.
+/// Marks `repo_path` trusted in ~/.claude.json so Claude Code doesn't block
+/// on the first-run trust dialog. Claude Code resolves a worktree's trust
+/// against its main repo's path, so this runs once per base clone, not per
+/// PR. Only touches `hasTrustDialogAccepted`; writes atomically since this
+/// is shared global state.
 pub fn ensure_trusted(repo_path: &Path) -> Result<()> {
     let path = paths::claude_config_file()?;
     let key = repo_path

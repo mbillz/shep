@@ -4,10 +4,9 @@ use crate::review;
 use crate::state::State;
 use std::time::Duration;
 
-/// Foreground poll loop: checks GitHub for review requests on the allowlisted
-/// repos every `poll_interval_secs`, triggers a review for anything new or
-/// updated since we last saw it, and watches each one for completion on its
-/// own background thread so a slow review doesn't stall the next poll.
+/// Polls allowlisted repos for review requests every `poll_interval_secs`;
+/// each triggered review is watched for completion on its own thread so a
+/// slow one doesn't stall the next poll.
 pub fn run(config: &Config) -> anyhow::Result<()> {
     if config.repos.is_empty() {
         eprintln!(

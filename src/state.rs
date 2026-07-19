@@ -45,8 +45,7 @@ impl State {
         Ok(())
     }
 
-    /// A PR needs review if we've never seen it, or if its head SHA has moved
-    /// since the last time we reviewed it.
+    /// True if unseen, or its head SHA has moved since last reviewed.
     pub fn needs_review(&self, owner: &str, repo: &str, number: u64, head_sha: &str) -> bool {
         match self.entries.get(&key(owner, repo, number)) {
             Some(entry) => entry.last_sha != head_sha,
