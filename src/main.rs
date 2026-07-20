@@ -18,7 +18,7 @@ use state::State;
 use std::time::Duration;
 
 #[derive(Parser)]
-#[command(name = "shep", about = "Auto-launches principal-engineer PR reviews in tmux")]
+#[command(name = "shep", about = "\u{1f415} Auto-launches principal-engineer PR reviews in tmux")]
 struct Cli {
     /// Defaults to `daemon` if omitted.
     #[command(subcommand)]
@@ -87,6 +87,7 @@ fn cmd_init() -> Result<()> {
         "installed principal-review skill to {}",
         paths::claude_skills_dir()?.join("principal-review/SKILL.md").display()
     );
+    println!("\u{1f415} ready to fetch");
 
     Ok(())
 }
@@ -107,7 +108,7 @@ fn cmd_review(repo: &str, number: u64) -> Result<()> {
         number,
     };
 
-    println!("triggering review for {}", pr.full_ref());
+    println!("\u{1f415} triggering review for {}", pr.full_ref());
     let details = github::pr_view(&pr)?;
     let triggered = review::trigger_review(&config, &pr, details)?;
     println!(
@@ -122,7 +123,7 @@ fn cmd_review(repo: &str, number: u64) -> Result<()> {
     println!("waiting for the review to finish...");
     review::await_and_notify(&pr, &triggered, Duration::from_secs(900))?;
     println!(
-        "review ready - `tmux attach -t {}` to see it",
+        "\u{1f415} review ready - `tmux attach -t {}` to see it",
         config.tmux_session
     );
 

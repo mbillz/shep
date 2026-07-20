@@ -128,7 +128,7 @@ fn wait_for_file(path: &Path, timeout: Duration) -> Result<()> {
 pub fn await_and_notify(pr: &PrRef, review: &TriggeredReview, timeout: Duration) -> Result<()> {
     wait_for_file(&review.done_path, timeout)?;
     notify::notify(
-        &format!("Review ready: {}", pr.full_ref()),
+        &format!("\u{1f415} Review ready: {}", pr.full_ref()),
         &review.details.title,
     )
 }
