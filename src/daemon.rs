@@ -16,16 +16,26 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
     }
 
     loop {
-        if let Err(e) = poll_once(config) {
-            eprintln!("poll failed: {e:#}");
+        let now = chrono::Local::now().format("%H:%M:%S");
+        match poll_once(config) {
+            Ok((checked, 0)) => {
+                println!("[{now}] checked {checked} PR(s), nothing new")
+            }
+            Ok((checked, triggered)) => {
+                println!("[{now}] checked {checked} PR(s), triggered {triggered} review(s)")
+            }
+            Err(e) => eprintln!("[{now}] poll failed: {e:#}"),
         }
         std::thread::sleep(Duration::from_secs(config.poll_interval_secs));
     }
 }
 
-fn poll_once(config: &Config) -> anyhow::Result<()> {
+/// Returns (PRs checked, reviews newly triggered).
+fn poll_once(config: &Config) -> anyhow::Result<(usize, usize)> {
     let mut state = State::load_or_default()?;
     let prs = github::list_review_requested(config)?;
+    let checked = prs.len();
+    let mut triggered_count = 0;
 
     for pr in prs {
         let details = match github::pr_view(&pr) {
@@ -44,6 +54,7 @@ fn poll_once(config: &Config) -> anyhow::Result<()> {
             Ok(triggered) => {
                 state.mark_reviewed(&pr.owner, &pr.repo, pr.number, &triggered.details.head_sha);
                 state.save()?;
+                triggered_count += 1;
 
                 let pr_for_thread = pr.clone();
                 std::thread::spawn(move || {
@@ -63,5 +74,5 @@ fn poll_once(config: &Config) -> anyhow::Result<()> {
         }
     }
 
-    Ok(())
+    Ok((checked, triggered_count))
 }
