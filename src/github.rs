@@ -133,17 +133,33 @@ pub fn list_review_requested(config: &Config) -> Result<Vec<PrRef>> {
             repo,
             number: item.number,
         };
-        match review_requested_at(&pr, &username) {
+        let recently_tagged = match review_requested_at(&pr, &username) {
             // Couldn't pin down when (e.g. a team-based review request
             // rather than a direct one) - include it rather than risk
             // silently hiding something the user was genuinely tagged on.
-            Ok(None) => prs.push(pr),
-            Ok(Some(requested_at)) if requested_at >= cutoff => prs.push(pr),
-            Ok(Some(_)) => {}
-            Err(e) => eprintln!(
-                "skipping {}: could not check review-request time: {e:#}",
-                pr.full_ref()
-            ),
+            Ok(None) => true,
+            Ok(Some(requested_at)) => requested_at >= cutoff,
+            Err(e) => {
+                eprintln!(
+                    "skipping {}: could not check review-request time: {e:#}",
+                    pr.full_ref()
+                );
+                false
+            }
+        };
+        if !recently_tagged {
+            continue;
+        }
+
+        match already_approved(&pr) {
+            Ok(true) => continue,
+            Ok(false) => prs.push(pr),
+            Err(e) => {
+                eprintln!(
+                    "skipping {}: could not check approval state: {e:#}",
+                    pr.full_ref()
+                );
+            }
         }
     }
     Ok(prs)
@@ -166,6 +182,25 @@ pub fn pr_view(pr: &PrRef) -> Result<PrDetails> {
 pub fn pr_is_open(pr: &PrRef) -> Result<bool> {
     let raw = run_gh(&["pr", "view", &pr.url(), "--json", "state", "--jq", ".state"])?;
     Ok(raw.trim() == "OPEN")
+}
+
+/// True if the PR is already approved (by anyone, not just the current
+/// user) - GitHub's own aggregate `reviewDecision`, so it reflects the
+/// PR's actual approval state (superseded/dismissed reviews, multiple
+/// reviewers, etc.) rather than something shep would have to work out
+/// itself from the raw reviews list. Verified against a real PR that was
+/// still showing as review-requested despite a colleague's approval.
+pub fn already_approved(pr: &PrRef) -> Result<bool> {
+    let raw = run_gh(&[
+        "pr",
+        "view",
+        &pr.url(),
+        "--json",
+        "reviewDecision",
+        "--jq",
+        ".reviewDecision",
+    ])?;
+    Ok(raw.trim() == "APPROVED")
 }
 
 #[cfg(test)]

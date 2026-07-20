@@ -11,7 +11,9 @@ v1 status: single-machine, foreground daemon.
 ## How it works
 
 1. `shep daemon` polls `gh api search/issues` for open PRs where you're a requested
-   reviewer, filtered to the repos you've allowlisted in config.
+   reviewer, filtered to the repos you've allowlisted in config, and skips anything
+   already approved (by anyone, via GitHub's own `reviewDecision`) - no need to review
+   what a colleague already signed off on.
 2. For each new-or-updated PR, it clones (or updates) the repo under a cache directory,
    checks out the PR's head into its own git worktree, and opens a window for it in a
    shared `shep` tmux session (created on first use).
