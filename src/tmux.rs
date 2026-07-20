@@ -54,6 +54,10 @@ pub fn ensure_session(session: &str, cwd: &Path) -> Result<()> {
     create_window(session, cwd, "idle").map(|_| ())
 }
 
+pub fn kill_window(window_id: &str) -> Result<()> {
+    run_tmux(&["kill-window", "-t", window_id]).map(|_| ())
+}
+
 /// Whether `window_id` still exists - used to tell a genuinely in-progress
 /// review apart from one whose window got closed (e.g. killed by hand).
 pub fn window_exists(window_id: &str) -> bool {

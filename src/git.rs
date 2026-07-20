@@ -20,12 +20,20 @@ fn run_git(cwd: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+pub fn base_repo_path(clone_root: &Path, owner: &str, repo: &str) -> PathBuf {
+    clone_root.join(owner).join(repo)
+}
+
+pub fn worktree_root(clone_root: &Path, owner: &str, repo: &str) -> PathBuf {
+    clone_root.join(format!("{owner}-{repo}-worktrees"))
+}
+
 /// Ensures a base clone of owner/repo exists under clone_root; PR worktrees
 /// branch off of this instead of a fresh clone per review. Partial clone
 /// (`--filter=blob:none`): full commit graph, but blob contents are fetched
 /// lazily on checkout instead of downloading the repo's whole history.
 pub fn ensure_base_clone(clone_root: &Path, owner: &str, repo: &str) -> Result<PathBuf> {
-    let repo_path = clone_root.join(owner).join(repo);
+    let repo_path = base_repo_path(clone_root, owner, repo);
     if repo_path.join(".git").exists() {
         run_git(&repo_path, &["fetch", "origin"])?;
         return Ok(repo_path);
@@ -92,4 +100,19 @@ pub fn ensure_pr_worktree(
         .with_context(|| format!("creating worktree for PR #{number}"))?;
     }
     Ok(worktree_path)
+}
+
+pub fn remove_worktree(base_repo: &Path, worktree_path: &Path) -> Result<()> {
+    run_git(
+        base_repo,
+        &[
+            "worktree",
+            "remove",
+            "--force",
+            worktree_path
+                .to_str()
+                .context("worktree path is not valid UTF-8")?,
+        ],
+    )
+    .map(|_| ())
 }

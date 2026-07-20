@@ -36,6 +36,14 @@ fn key(owner: &str, repo: &str, number: u64) -> String {
     format!("{owner}/{repo}#{number}")
 }
 
+/// Splits an "owner/repo#number" key back into its parts.
+pub fn parse_key(key: &str) -> Option<(String, String, u64)> {
+    let (owner_repo, number) = key.split_once('#')?;
+    let (owner, repo) = owner_repo.split_once('/')?;
+    let number = number.parse().ok()?;
+    Some((owner.to_string(), repo.to_string(), number))
+}
+
 /// What to do about a PR, based on stored state alone. `InProgress` needs a
 /// follow-up check (is the window actually still alive?) that only the
 /// caller can do, since that's I/O this module deliberately doesn't touch.
@@ -99,16 +107,23 @@ impl State {
         );
     }
 
-    pub fn mark_reviewed(&mut self, owner: &str, repo: &str, number: u64, head_sha: &str) {
+    /// `window_id` is kept (not cleared) after review completion, so a later
+    /// cleanup pass can still find and close the right window once the PR
+    /// merges/closes.
+    pub fn mark_reviewed(&mut self, owner: &str, repo: &str, number: u64, head_sha: &str, window_id: &str) {
         self.entries.insert(
             key(owner, repo, number),
             ReviewedPr {
                 last_sha: head_sha.to_string(),
                 status: Status::Reviewed,
-                window_id: None,
+                window_id: Some(window_id.to_string()),
                 reviewed_at: chrono::Local::now().to_rfc3339(),
             },
         );
+    }
+
+    pub fn remove(&mut self, key: &str) {
+        self.entries.remove(key);
     }
 
     pub fn entries(&self) -> impl Iterator<Item = (&String, &ReviewedPr)> {
@@ -132,7 +147,7 @@ mod tests {
     #[test]
     fn same_sha_already_reviewed() {
         let mut state = State::default();
-        state.mark_reviewed("acme", "widgets", 1, "abc123");
+        state.mark_reviewed("acme", "widgets", 1, "abc123", "@1");
         assert_eq!(
             state.check("acme", "widgets", 1, "abc123"),
             ReviewCheck::AlreadyReviewed
@@ -142,7 +157,7 @@ mod tests {
     #[test]
     fn new_sha_needs_review_again_even_if_previously_reviewed() {
         let mut state = State::default();
-        state.mark_reviewed("acme", "widgets", 1, "abc123");
+        state.mark_reviewed("acme", "widgets", 1, "abc123", "@1");
         assert_eq!(
             state.check("acme", "widgets", 1, "def456"),
             ReviewCheck::NeedsReview
@@ -174,12 +189,32 @@ mod tests {
     #[test]
     fn round_trips_through_json() {
         let mut state = State::default();
-        state.mark_reviewed("acme", "widgets", 1, "abc123");
+        state.mark_reviewed("acme", "widgets", 1, "abc123", "@1");
         let raw = serde_json::to_string(&state).unwrap();
         let parsed: State = serde_json::from_str(&raw).unwrap();
         assert_eq!(
             parsed.check("acme", "widgets", 1, "abc123"),
             ReviewCheck::AlreadyReviewed
+        );
+    }
+
+    #[test]
+    fn parse_key_splits_owner_repo_number() {
+        assert_eq!(
+            parse_key("acme/widgets#42"),
+            Some(("acme".to_string(), "widgets".to_string(), 42))
+        );
+        assert_eq!(parse_key("not-a-valid-key"), None);
+    }
+
+    #[test]
+    fn remove_drops_the_entry() {
+        let mut state = State::default();
+        state.mark_reviewed("acme", "widgets", 1, "abc123", "@1");
+        state.remove("acme/widgets#1");
+        assert_eq!(
+            state.check("acme", "widgets", 1, "abc123"),
+            ReviewCheck::NeedsReview
         );
     }
 

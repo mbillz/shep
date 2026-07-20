@@ -124,7 +124,7 @@ fn cmd_review(repo: &str, number: u64) -> Result<()> {
     review::await_and_notify(&pr, &triggered, Duration::from_secs(900))?;
 
     let mut state = State::load_or_default()?;
-    state.mark_reviewed(&owner, &name, number, &triggered.details.head_sha);
+    state.mark_reviewed(&owner, &name, number, &triggered.details.head_sha, &triggered.window_id);
     state.save()?;
 
     println!(

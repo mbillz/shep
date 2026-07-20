@@ -161,6 +161,13 @@ pub fn pr_view(pr: &PrRef) -> Result<PrDetails> {
     serde_json::from_str(&raw).context("parsing gh pr view response")
 }
 
+/// True if the PR is still open (as opposed to merged or closed) - used to
+/// decide whether a completed review's worktree/window are safe to clean up.
+pub fn pr_is_open(pr: &PrRef) -> Result<bool> {
+    let raw = run_gh(&["pr", "view", &pr.url(), "--json", "state", "--jq", ".state"])?;
+    Ok(raw.trim() == "OPEN")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

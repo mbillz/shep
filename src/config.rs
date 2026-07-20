@@ -30,6 +30,12 @@ pub struct Config {
     /// requests (e.g. after being away) gets spread across multiple poll
     /// cycles instead of firing all at once.
     pub max_triggers_per_poll: usize,
+    /// A completed review's worktree and tmux window get cleaned up once
+    /// its PR is merged/closed on GitHub AND it's been sitting reviewed for
+    /// this many days - the grace period is there so a window you're still
+    /// actively using doesn't get closed out from under you the moment the
+    /// PR merges. 0 disables automatic cleanup entirely.
+    pub cleanup_after_days: u32,
     #[serde(rename = "repos")]
     pub repos: Vec<RepoRef>,
 }
@@ -43,6 +49,7 @@ impl Default for Config {
             repo_clone_root: "~/.cache/shep/repos".to_string(),
             lookback_days: 1,
             max_triggers_per_poll: 3,
+            cleanup_after_days: 3,
             repos: Vec::new(),
         }
     }

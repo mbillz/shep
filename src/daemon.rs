@@ -1,8 +1,10 @@
 use crate::config::Config;
+use crate::git;
 use crate::github;
+use crate::github::PrRef;
 use crate::paths;
 use crate::review;
-use crate::state::{ReviewCheck, State};
+use crate::state::{self, ReviewCheck, State};
 use crate::tmux;
 use anyhow::{bail, Context};
 use std::time::Duration;
@@ -58,6 +60,9 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
             }
             Err(e) => eprintln!("[{now}] poll failed: {e:#}"),
         }
+        if let Err(e) = cleanup_stale(config) {
+            eprintln!("[{now}] cleanup failed: {e:#}");
+        }
         std::thread::sleep(Duration::from_secs(config.poll_interval_secs));
     }
 }
@@ -112,6 +117,7 @@ fn poll_once(config: &Config) -> anyhow::Result<(usize, usize)> {
                 let pr_for_thread = pr.clone();
                 std::thread::spawn(move || {
                     let sha = triggered.details.head_sha.clone();
+                    let window_id = triggered.window_id.clone();
                     match review::await_and_notify(&pr_for_thread, &triggered, Duration::from_secs(900)) {
                         Ok(()) => {
                             if let Ok(mut state) = State::load_or_default() {
@@ -120,6 +126,7 @@ fn poll_once(config: &Config) -> anyhow::Result<(usize, usize)> {
                                     &pr_for_thread.repo,
                                     pr_for_thread.number,
                                     &sha,
+                                    &window_id,
                                 );
                                 if let Err(e) = state.save() {
                                     eprintln!(
@@ -145,4 +152,68 @@ fn poll_once(config: &Config) -> anyhow::Result<(usize, usize)> {
     }
 
     Ok((checked, triggered_count))
+}
+
+/// Closes the window and removes the worktree for any Reviewed PR that's
+/// both past `cleanup_after_days` and confirmed merged/closed on GitHub.
+/// Still-open PRs are left alone no matter how old - only a merged/closed
+/// state plus the grace period together trigger cleanup, so a window isn't
+/// closed out from under someone still using it right when a PR merges.
+fn cleanup_stale(config: &Config) -> anyhow::Result<()> {
+    if config.cleanup_after_days == 0 {
+        return Ok(());
+    }
+    let mut state = State::load_or_default()?;
+    let cutoff = chrono::Local::now() - chrono::Duration::days(config.cleanup_after_days.into());
+
+    let mut candidates = Vec::new();
+    for (key, entry) in state.entries() {
+        if entry.status != state::Status::Reviewed {
+            continue;
+        }
+        let Ok(reviewed_at) = chrono::DateTime::parse_from_rfc3339(&entry.reviewed_at) else {
+            continue;
+        };
+        if reviewed_at.with_timezone(&chrono::Local) > cutoff {
+            continue;
+        }
+        let Some((owner, repo, number)) = state::parse_key(key) else {
+            continue;
+        };
+        candidates.push((key.clone(), PrRef { owner, repo, number }, entry.window_id.clone()));
+    }
+
+    let mut cleaned = 0;
+    for (key, pr, window_id) in candidates {
+        match github::pr_is_open(&pr) {
+            Ok(true) => continue,
+            Ok(false) => {}
+            Err(e) => {
+                eprintln!("could not check GitHub state for {}: {e:#}", pr.full_ref());
+                continue;
+            }
+        }
+
+        if let Some(w) = &window_id {
+            if let Err(e) = tmux::kill_window(w) {
+                eprintln!("could not close window for {}: {e:#}", pr.full_ref());
+            }
+        }
+        let clone_root = config.clone_root();
+        let base_repo = git::base_repo_path(&clone_root, &pr.owner, &pr.repo);
+        let worktree_path = git::worktree_root(&clone_root, &pr.owner, &pr.repo).join(format!("pr-{}", pr.number));
+        if worktree_path.exists() {
+            if let Err(e) = git::remove_worktree(&base_repo, &worktree_path) {
+                eprintln!("could not remove worktree for {}: {e:#}", pr.full_ref());
+            }
+        }
+        state.remove(&key);
+        cleaned += 1;
+    }
+
+    if cleaned > 0 {
+        state.save()?;
+        println!("\u{1f415} cleaned up {cleaned} merged/closed PR(s)");
+    }
+    Ok(())
 }

@@ -69,7 +69,7 @@ pub fn trigger_review(config: &Config, pr: &PrRef, details: PrDetails) -> Result
     let clone_root = config.clone_root();
     let base_repo = git::ensure_base_clone(&clone_root, &pr.owner, &pr.repo)?;
     claude_trust::ensure_trusted(&base_repo)?;
-    let worktree_root = clone_root.join(format!("{}-{}-worktrees", pr.owner, pr.repo));
+    let worktree_root = git::worktree_root(&clone_root, &pr.owner, &pr.repo);
     let worktree_path = git::ensure_pr_worktree(&base_repo, &worktree_root, pr.number)?;
 
     // Scratch dir lives outside the worktree so the reviewing agent's own
