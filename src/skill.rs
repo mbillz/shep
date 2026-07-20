@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 const SKILL_MD: &str = include_str!("../skills/principal-review/SKILL.md");
 
 /// Installs (or overwrites) the principal-review skill into ~/.claude/skills,
-/// so `claude` sessions shepherd launches can invoke it as /principal-review.
+/// so `claude` sessions shep launches can invoke it as /principal-review.
 pub fn install() -> Result<()> {
     let dir = paths::claude_skills_dir()?.join("principal-review");
     std::fs::create_dir_all(&dir)

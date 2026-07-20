@@ -2,13 +2,16 @@ use crate::claude_trust;
 use crate::config::Config;
 use crate::github::{PrDetails, PrRef};
 use crate::git;
-use crate::herdr;
-use anyhow::{Context, Result};
-use std::time::Duration;
+use crate::notify;
+use crate::paths;
+use crate::tmux;
+use anyhow::{bail, Context, Result};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 pub struct TriggeredReview {
-    pub tab_id: String,
-    pub pane_id: String,
+    pub window_id: String,
+    done_path: PathBuf,
     pub details: PrDetails,
 }
 
@@ -16,18 +19,20 @@ fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
-/// Bare `claude` launch command, deliberately with no prompt argument (see
+/// `claude` launch command, deliberately with no prompt argument (see
 /// trigger_review) and unscoped Bash rather than `Bash(git *) Bash(gh *)`:
 /// Claude Code's allowlist requires every part of a compound/piped command
 /// to match, and review exploration chains git/gh through head/grep/echo
 /// constantly, so a narrower list hangs on an unanswered permission prompt.
-/// Still no Edit/Write/WebFetch.
-fn build_claude_command(config: &Config) -> String {
+/// Still no Edit/Write/WebFetch. `--settings` wires up the Stop hook that
+/// signals completion (see write_hook_settings).
+fn build_claude_command(config: &Config, settings_path: &str) -> String {
     let allowed_tools = "Bash Read Grep Glob";
     format!(
-        "claude --model {} --permission-mode acceptEdits --allowedTools {}",
+        "claude --model {} --permission-mode acceptEdits --allowedTools {} --settings {}",
         shell_quote(&config.model),
         shell_quote(allowed_tools),
+        shell_quote(settings_path),
     )
 }
 
@@ -35,9 +40,28 @@ fn review_prompt(pr: &PrRef) -> String {
     format!("/principal-review {}", pr.url())
 }
 
-/// Checks out the PR, opens a tab for it in the shared review workspace,
-/// launches Claude, and submits the principal-review invocation as its first
-/// message. Doesn't wait for the review to finish.
+/// Writes a settings file whose Stop hook touches `done_path` when Claude
+/// finishes a turn - this is how completion is detected (see
+/// `await_and_notify`), verified live to fire correctly in interactive mode.
+fn write_hook_settings(settings_path: &Path, done_path: &Path) -> Result<()> {
+    let done_str = done_path.to_str().context("done path is not valid UTF-8")?;
+    let settings = serde_json::json!({
+        "hooks": {
+            "Stop": [{
+                "hooks": [{
+                    "type": "command",
+                    "command": format!("touch {}", shell_quote(done_str)),
+                }]
+            }]
+        }
+    });
+    std::fs::write(settings_path, serde_json::to_string(&settings)?)
+        .with_context(|| format!("writing {}", settings_path.display()))
+}
+
+/// Checks out the PR, opens a tmux window for it in the shared review
+/// session, launches Claude, and submits the principal-review invocation as
+/// its first message. Doesn't wait for the review to finish.
 ///
 /// Takes `details` instead of fetching them, since callers like the daemon
 /// already needed them to check the head SHA before deciding to trigger.
@@ -48,37 +72,62 @@ pub fn trigger_review(config: &Config, pr: &PrRef, details: PrDetails) -> Result
     let worktree_root = clone_root.join(format!("{}-{}-worktrees", pr.owner, pr.repo));
     let worktree_path = git::ensure_pr_worktree(&base_repo, &worktree_root, pr.number)?;
 
-    let workspace = herdr::ensure_workspace(&config.herdr_workspace_label)?;
-    let pane = herdr::create_tab(&workspace.workspace_id, &worktree_path, &pr.full_ref())?;
-    if let Some(starter_tab_id) = workspace.starter_tab_id {
-        // Safe now that a second tab exists (herdr won't close the last one).
-        if let Err(e) = herdr::close_tab(&starter_tab_id) {
-            eprintln!("warning: could not close the '{}' workspace's starter tab: {e:#}", config.herdr_workspace_label);
-        }
-    }
+    // Scratch dir lives outside the worktree so the reviewing agent's own
+    // `git status`/exploration sees a pristine checkout, not shep's own
+    // files. Worktrees are reused across re-reviews of the same PR, so any
+    // `done` file from a previous review must be cleared before relaunching
+    // - otherwise completion detection would return instantly on the stale
+    // sentinel instead of waiting for the new hook to fire.
+    let scratch_dir = paths::state_dir()?
+        .join("reviews")
+        .join(format!("{}-{}-{}", pr.owner, pr.repo, pr.number));
+    std::fs::create_dir_all(&scratch_dir)?;
+    let done_path = scratch_dir.join("done");
+    let _ = std::fs::remove_file(&done_path);
+    let settings_path = scratch_dir.join("settings.json");
+    write_hook_settings(&settings_path, &done_path)?;
+    let settings_str = settings_path
+        .to_str()
+        .context("settings path is not valid UTF-8")?;
 
-    herdr::run_in_pane(&pane.pane_id, &build_claude_command(config))?;
-    herdr::wait_for_text(&pane.pane_id, "accept edits on", Duration::from_secs(30))
+    let window_id = tmux::create_window(&config.tmux_session, &worktree_path, &pr.full_ref())?;
+
+    tmux::send_text(&window_id, &build_claude_command(config, settings_str))?;
+    tmux::send_enter(&window_id)?;
+    tmux::wait_for_text(&window_id, "accept edits on", Duration::from_secs(30))
         .context("Claude Code never became ready to accept the initial prompt")?;
     // Short settle: an Enter sent right at the shell-to-claude pty handoff
     // can still land on the outgoing process and get dropped.
     std::thread::sleep(Duration::from_millis(500));
-    herdr::send_text(&pane.pane_id, &review_prompt(pr))?;
+    tmux::send_text(&window_id, &review_prompt(pr))?;
     std::thread::sleep(Duration::from_millis(300));
-    herdr::send_enter(&pane.pane_id)?;
+    tmux::send_enter(&window_id)?;
 
     Ok(TriggeredReview {
-        tab_id: pane.tab_id,
-        pane_id: pane.pane_id,
+        window_id,
+        done_path,
         details,
     })
 }
 
-/// Blocks until the review's initial turn finishes, then fires a system
-/// notification.
+fn wait_for_file(path: &Path, timeout: Duration) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if path.exists() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            bail!("timed out after {:?} waiting for the review to finish", timeout);
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+}
+
+/// Blocks until the review's initial turn finishes (its Stop hook fires),
+/// then fires a system notification.
 pub fn await_and_notify(pr: &PrRef, review: &TriggeredReview, timeout: Duration) -> Result<()> {
-    herdr::wait_until_finished(&review.pane_id, timeout)?;
-    herdr::notify(
+    wait_for_file(&review.done_path, timeout)?;
+    notify::notify(
         &format!("Review ready: {}", pr.full_ref()),
         &review.details.title,
     )
@@ -95,11 +144,12 @@ mod tests {
     }
 
     #[test]
-    fn claude_command_has_no_prompt_argument() {
+    fn claude_command_has_no_prompt_argument_but_has_settings() {
         let mut config = Config::default();
         config.model = "sonnet".to_string();
-        let cmd = build_claude_command(&config);
+        let cmd = build_claude_command(&config, "/tmp/settings.json");
         assert!(cmd.contains("--model 'sonnet'"));
+        assert!(cmd.contains("--settings '/tmp/settings.json'"));
         assert!(!cmd.contains("principal-review"));
     }
 
@@ -112,5 +162,18 @@ mod tests {
         };
         let prompt = review_prompt(&pr);
         assert_eq!(prompt, "/principal-review https://github.com/acme/widgets/pull/7");
+    }
+
+    #[test]
+    fn hook_settings_reference_the_done_path() {
+        let dir = std::env::temp_dir().join(format!("shep-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let settings_path = dir.join("settings.json");
+        let done_path = dir.join("done");
+        write_hook_settings(&settings_path, &done_path).unwrap();
+        let raw = std::fs::read_to_string(&settings_path).unwrap();
+        assert!(raw.contains("Stop"));
+        assert!(raw.contains(done_path.to_str().unwrap()));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -3,11 +3,12 @@ mod config;
 mod daemon;
 mod git;
 mod github;
-mod herdr;
+mod notify;
 mod paths;
 mod review;
 mod skill;
 mod state;
+mod tmux;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -17,7 +18,7 @@ use state::State;
 use std::time::Duration;
 
 #[derive(Parser)]
-#[command(name = "shepherd", about = "Auto-launches principal-engineer PR reviews in herdr")]
+#[command(name = "shep", about = "Auto-launches principal-engineer PR reviews in tmux")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -27,7 +28,7 @@ struct Cli {
 enum Command {
     /// Check dependencies, write default config, install the review skill.
     Init,
-    /// Review a single PR right now, e.g. `shepherd review acme/widgets 42`.
+    /// Review a single PR right now, e.g. `shep review acme/widgets 42`.
     Review {
         /// owner/repo, e.g. acme/widgets
         repo: String,
@@ -50,8 +51,10 @@ fn main() -> Result<()> {
 }
 
 fn check_dependency(bin: &str) -> bool {
+    // tmux doesn't support GNU-style --version, only -V.
+    let version_flag = if bin == "tmux" { "-V" } else { "--version" };
     std::process::Command::new(bin)
-        .arg("--version")
+        .arg(version_flag)
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -59,7 +62,7 @@ fn check_dependency(bin: &str) -> bool {
 
 fn cmd_init() -> Result<()> {
     let mut missing = Vec::new();
-    for bin in ["gh", "herdr", "claude", "git"] {
+    for bin in ["gh", "tmux", "claude", "git"] {
         if check_dependency(bin) {
             println!("found {bin}");
         } else {
@@ -73,7 +76,7 @@ fn cmd_init() -> Result<()> {
     let config = Config::default();
     if config.write_if_missing()? {
         println!("wrote default config to {}", Config::path()?.display());
-        println!("  edit it to add repos under [[repos]] before running `shepherd daemon`");
+        println!("  edit it to add repos under [[repos]] before running `shep daemon`");
     } else {
         println!("config already exists at {}", Config::path()?.display());
     }
@@ -83,18 +86,6 @@ fn cmd_init() -> Result<()> {
         "installed principal-review skill to {}",
         paths::claude_skills_dir()?.join("principal-review/SKILL.md").display()
     );
-
-    let integration_status = std::process::Command::new("herdr")
-        .args(["integration", "status"])
-        .output();
-    let claude_integrated = integration_status
-        .map(|o| String::from_utf8_lossy(&o.stdout).contains("claude"))
-        .unwrap_or(false);
-    if !claude_integrated {
-        println!(
-            "reminder: run `herdr integration install claude` so herdr can track review sessions' idle/working state"
-        );
-    }
 
     Ok(())
 }
@@ -119,8 +110,8 @@ fn cmd_review(repo: &str, number: u64) -> Result<()> {
     let details = github::pr_view(&pr)?;
     let triggered = review::trigger_review(&config, &pr, details)?;
     println!(
-        "opened tab {} (pane {}) in the '{}' workspace",
-        triggered.tab_id, triggered.pane_id, config.herdr_workspace_label
+        "opened window {} in the '{}' tmux session",
+        triggered.window_id, config.tmux_session
     );
 
     let mut state = State::load_or_default()?;
@@ -129,7 +120,10 @@ fn cmd_review(repo: &str, number: u64) -> Result<()> {
 
     println!("waiting for the review to finish...");
     review::await_and_notify(&pr, &triggered, Duration::from_secs(900))?;
-    println!("review ready - check the '{}' workspace in herdr", config.herdr_workspace_label);
+    println!(
+        "review ready - `tmux attach -t {}` to see it",
+        config.tmux_session
+    );
 
     Ok(())
 }

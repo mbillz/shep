@@ -385,7 +385,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "shepherd"
+name = "shep"
 version = "0.1.0"
 dependencies = [
  "anyhow",

@@ -38,7 +38,7 @@ pub fn ensure_trusted(repo_path: &Path) -> Result<()> {
         .context("project entry in ~/.claude.json is not an object")?
         .insert("hasTrustDialogAccepted".to_string(), Value::Bool(true));
 
-    let tmp_path = path.with_extension("json.shepherd-tmp");
+    let tmp_path = path.with_extension("json.shep-tmp");
     std::fs::write(&tmp_path, serde_json::to_string_pretty(&root)?)
         .with_context(|| format!("writing {}", tmp_path.display()))?;
     std::fs::rename(&tmp_path, &path)

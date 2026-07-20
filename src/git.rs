@@ -60,7 +60,7 @@ pub fn ensure_pr_worktree(
     worktree_root: &Path,
     number: u64,
 ) -> Result<PathBuf> {
-    let ref_name = format!("refs/shepherd/pr-{number}");
+    let ref_name = format!("refs/shep/pr-{number}");
     run_git(
         base_repo,
         &[

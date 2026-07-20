@@ -1,11 +1,11 @@
 [package]
-name = "shepherd"
+name = "shep"
 version = "0.1.0"
 edition = "2021"
-description = "Watches GitHub for PR review requests and launches a principal-engineer Claude Code review in a dedicated herdr workspace"
+description = "Watches GitHub for PR review requests and launches a principal-engineer Claude Code review in a dedicated tmux session"
 
 [[bin]]
-name = "shepherd"
+name = "shep"
 path = "src/main.rs"
 
 [dependencies]

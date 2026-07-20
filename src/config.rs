@@ -20,7 +20,7 @@ impl RepoRef {
 pub struct Config {
     pub poll_interval_secs: u64,
     pub model: String,
-    pub herdr_workspace_label: String,
+    pub tmux_session: String,
     pub repo_clone_root: String,
     #[serde(rename = "repos")]
     pub repos: Vec<RepoRef>,
@@ -31,8 +31,8 @@ impl Default for Config {
         Config {
             poll_interval_secs: 60,
             model: "sonnet".to_string(),
-            herdr_workspace_label: "pr-review".to_string(),
-            repo_clone_root: "~/.cache/shepherd/repos".to_string(),
+            tmux_session: "pr-review".to_string(),
+            repo_clone_root: "~/.cache/shep/repos".to_string(),
             repos: Vec::new(),
         }
     }

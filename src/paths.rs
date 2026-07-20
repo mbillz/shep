@@ -17,11 +17,11 @@ fn xdg_dir(env_var: &str, fallback_under_home: &str) -> Result<PathBuf> {
 }
 
 pub fn config_dir() -> Result<PathBuf> {
-    Ok(xdg_dir("XDG_CONFIG_HOME", ".config")?.join("shepherd"))
+    Ok(xdg_dir("XDG_CONFIG_HOME", ".config")?.join("shep"))
 }
 
 pub fn state_dir() -> Result<PathBuf> {
-    Ok(xdg_dir("XDG_STATE_HOME", ".local/state")?.join("shepherd"))
+    Ok(xdg_dir("XDG_STATE_HOME", ".local/state")?.join("shep"))
 }
 
 pub fn claude_skills_dir() -> Result<PathBuf> {
@@ -48,8 +48,8 @@ mod tests {
     #[test]
     fn expands_leading_tilde() {
         std::env::set_var("HOME", "/tmp/fake-home");
-        let expanded = expand_tilde("~/.cache/shepherd/repos");
-        assert_eq!(expanded, PathBuf::from("/tmp/fake-home/.cache/shepherd/repos"));
+        let expanded = expand_tilde("~/.cache/shep/repos");
+        assert_eq!(expanded, PathBuf::from("/tmp/fake-home/.cache/shep/repos"));
     }
 
     #[test]
