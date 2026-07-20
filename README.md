@@ -14,7 +14,7 @@ v1 status: single-machine, foreground daemon.
    reviewer, filtered to the repos you've allowlisted in config.
 2. For each new-or-updated PR, it clones (or updates) the repo under a cache directory,
    checks out the PR's head into its own git worktree, and opens a window for it in a
-   shared `pr-review` tmux session (created on first use).
+   shared `shep` tmux session (created on first use).
 3. It launches Claude Code in that window and submits `/principal-review <PR URL>` as
    the first message.
 4. Once the turn finishes, it fires a system notification. The session stays open and
@@ -54,9 +54,9 @@ shep daemon                  # foreground poll loop over the allowlist
 shep status                  # what's tracked in the dedup state file
 ```
 
-Reviews happen in a tmux session named `pr-review` (configurable via `tmux_session` in
-config). `tmux attach -t pr-review` to look in on it from anywhere, including from
-inside another multiplexer like herdr - tmux doesn't care what's hosting its terminal.
+Reviews happen in a tmux session named `shep` (configurable via `tmux_session` in
+config). `tmux attach -t shep` to look in on it from anywhere, including from inside
+another multiplexer like herdr - tmux doesn't care what's hosting its terminal.
 `Ctrl-b d` to detach without killing it.
 
 ## Posting to GitHub

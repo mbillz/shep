@@ -35,7 +35,7 @@ impl Default for Config {
         Config {
             poll_interval_secs: 60,
             model: "sonnet".to_string(),
-            tmux_session: "pr-review".to_string(),
+            tmux_session: "shep".to_string(),
             repo_clone_root: "~/.cache/shep/repos".to_string(),
             lookback_days: 1,
             repos: Vec::new(),
