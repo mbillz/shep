@@ -34,6 +34,10 @@ shep init
 checks the dependencies above, writes a default config to `~/.config/shep/config.toml`,
 and installs the `principal-review` skill to `~/.claude/skills/principal-review/SKILL.md`.
 
+The daemon only considers PRs updated within `lookback_days` (default `1`) - it's
+scoped to recent activity, not every PR you've ever been asked to review. Bump it in
+config if you want a wider window.
+
 Add the repos you actually want watched:
 
 ```toml

@@ -61,17 +61,21 @@ fn run_gh(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+/// `updated:>=<cutoff>` restricts the search to PRs with recent activity
+/// (new commits, comments, or the review request itself) rather than every
+/// open PR the user has ever been asked to review.
+fn build_search_query(lookback_days: u32) -> String {
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(lookback_days.into()))
+        .format("%Y-%m-%dT%H:%M:%SZ");
+    format!("q=is:pr is:open review-requested:@me updated:>={cutoff}")
+}
+
 /// Lists open PRs where the authenticated user is a requested reviewer,
-/// filtered down to the repos in the config allowlist.
+/// updated within `config.lookback_days`, filtered down to the repos in the
+/// config allowlist.
 pub fn list_review_requested(config: &Config) -> Result<Vec<PrRef>> {
-    let raw = run_gh(&[
-        "api",
-        "-X",
-        "GET",
-        "search/issues",
-        "-f",
-        "q=is:pr is:open review-requested:@me",
-    ])?;
+    let query = build_search_query(config.lookback_days);
+    let raw = run_gh(&["api", "-X", "GET", "search/issues", "-f", &query])?;
     let parsed: SearchResponse =
         serde_json::from_str(&raw).context("parsing gh search/issues response")?;
 
@@ -112,6 +116,13 @@ mod tests {
                 .unwrap();
         assert_eq!(owner, "magicaltome");
         assert_eq!(repo, "lightfield");
+    }
+
+    #[test]
+    fn search_query_includes_updated_cutoff() {
+        let query = build_search_query(1);
+        assert!(query.contains("is:pr is:open review-requested:@me"));
+        assert!(query.contains("updated:>="));
     }
 
     #[test]

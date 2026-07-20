@@ -22,6 +22,10 @@ pub struct Config {
     pub model: String,
     pub tmux_session: String,
     pub repo_clone_root: String,
+    /// Only consider review requests on PRs updated within this many days -
+    /// keeps the daemon focused on recent activity instead of every PR
+    /// you've ever been asked to review.
+    pub lookback_days: u32,
     #[serde(rename = "repos")]
     pub repos: Vec<RepoRef>,
 }
@@ -33,6 +37,7 @@ impl Default for Config {
             model: "sonnet".to_string(),
             tmux_session: "pr-review".to_string(),
             repo_clone_root: "~/.cache/shep/repos".to_string(),
+            lookback_days: 1,
             repos: Vec::new(),
         }
     }
