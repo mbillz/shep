@@ -4,8 +4,7 @@ use crate::paths;
 use crate::review;
 use crate::state::State;
 use crate::tmux;
-use std::io::{self, IsTerminal, Write};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Polls allowlisted repos for review requests every `poll_interval_secs`;
 /// each triggered review is watched for completion on its own thread so a
@@ -30,38 +29,8 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
             }
             Err(e) => eprintln!("[{now}] poll failed: {e:#}"),
         }
-        wait(Duration::from_secs(config.poll_interval_secs));
+        std::thread::sleep(Duration::from_secs(config.poll_interval_secs));
     }
-}
-
-/// Sleeps `duration`, animating a little dog pacing back and forth on the
-/// current line if stdout is an actual terminal - skipped for redirected
-/// output (a log file, `| less`, etc.) so it doesn't fill the log with
-/// control characters.
-fn wait(duration: Duration) {
-    if !io::stdout().is_terminal() {
-        std::thread::sleep(duration);
-        return;
-    }
-
-    const WIDTH: i32 = 20;
-    const FRAME: Duration = Duration::from_millis(200);
-    let start = Instant::now();
-    let mut pos = 0;
-    let mut dir = 1;
-    let mut stdout = io::stdout();
-    while start.elapsed() < duration {
-        print!("\r{}\u{1f415}\x1b[K", " ".repeat(pos as usize));
-        let _ = stdout.flush();
-        pos += dir;
-        if pos <= 0 || pos >= WIDTH {
-            dir = -dir;
-            pos = pos.clamp(0, WIDTH);
-        }
-        std::thread::sleep(FRAME.min(duration.saturating_sub(start.elapsed())));
-    }
-    print!("\r\x1b[K");
-    let _ = stdout.flush();
 }
 
 /// Returns (PRs checked, reviews newly triggered).
