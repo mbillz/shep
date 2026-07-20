@@ -19,6 +19,8 @@ v1 status: single-machine, foreground daemon.
    the first message.
 4. Once the turn finishes, it fires a system notification. The session stays open and
    interactive - keep talking to it, or tell it to post the review to GitHub.
+5. Once a PR is merged/closed on GitHub and its review has been sitting done for a
+   few days, shep closes the window and removes the local worktree automatically.
 
 ## Setup
 
@@ -34,9 +36,14 @@ shep init
 checks the dependencies above, writes a default config to `~/.config/shep/config.toml`,
 and installs the `principal-review` skill to `~/.claude/skills/principal-review/SKILL.md`.
 
-The daemon only considers PRs updated within `lookback_days` (default `1`) - it's
-scoped to recent activity, not every PR you've ever been asked to review. Bump it in
-config if you want a wider window.
+A few config knobs worth knowing about, all with sane defaults:
+- `lookback_days` (default `1`) - only considers PRs you were tagged as a reviewer on
+  within this window, not every PR you've ever been asked to review.
+- `max_triggers_per_poll` (default `3`) - caps how many reviews fire in one poll, so a
+  backlog (e.g. after being away) gets spread across multiple polls instead of firing
+  all at once.
+- `cleanup_after_days` (default `3`) - grace period before a merged/closed PR's window
+  and worktree get cleaned up automatically. `0` disables cleanup entirely.
 
 Add the repos you actually want watched:
 
@@ -87,14 +94,17 @@ run the appropriate `gh pr review`/`gh pr comment` itself - it already has `gh` 
   `shep` just times out at 900s waiting - check the window.
 - **Notifications are macOS-only** for now (`osascript`). A `notify-send` branch for
   Linux would be a small addition if needed.
-- **Dedup** is per-machine (a local JSON file), not shared. If you run the daemon on
-  two machines at once, both could open a window for the same PR.
+- **Dedup** is per-machine (a local JSON file), not shared - if you run the daemon on
+  two machines at once, both could open a window for the same PR. On a single machine,
+  a second `shep daemon` refuses to start while one's already running (a PID lock), so
+  they can't race each other locally.
 - **Repo scope is allowlist-only** on purpose - an empty config means the daemon has
   nothing to watch, rather than firing on every repo you happen to have review access
   to.
-- **Killing `shep` mid-review** (Ctrl-C, `kill`, machine sleep) can leave a window
-  behind whose Claude Code session launched but never got its first message - the
-  process was interrupted before the "type the prompt in and submit" step. This is
-  harmless: the PR is only marked reviewed after that step succeeds, so the next
-  `daemon` poll (or a manual `shep review`) retries it cleanly. The stray empty window
-  itself isn't cleaned up automatically - close it by hand.
+- **Each PR's state is `reviewing` or `reviewed`**, visible via `shep status`. A
+  `reviewing` entry only counts as genuinely in progress if its tmux window is still
+  alive - if you kill it yourself (or `shep` gets killed mid-review before the prompt
+  is even submitted), the next poll notices the window's gone and retries instead of
+  treating it as silently done forever. The one gap: this retry check only runs for
+  PRs that still pass the `lookback_days` filter, so a `reviewing` entry that goes
+  quiet and ages out of that window won't be reconsidered automatically.
