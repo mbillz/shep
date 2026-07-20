@@ -90,10 +90,10 @@ comment:
 gh api repos/OWNER/REPO/pulls/NUMBER/reviews --input - <<'JSON'
 {
   "commit_id": "<headRefOid from step 2>",
-  "body": "<one or two sentence overall summary matching the requested verdict>\n\n— shep (https://github.com/mbillz/shep)",
+  "body": "<one or two sentence overall summary matching the requested verdict>\n\n— [shep](https://github.com/mbillz/shep)",
   "event": "APPROVE",
   "comments": [
-    {"path": "path/to/file.ts", "line": 42, "side": "RIGHT", "body": "<comment in the voice above>"}
+    {"path": "path/to/file.ts", "line": 42, "side": "RIGHT", "body": "<comment in the voice above>\n\n— [shep](https://github.com/mbillz/shep)"}
   ]
 }
 JSON
@@ -103,7 +103,8 @@ JSON
   asked for - never default to APPROVE just because that's the common case.
 - Only include `comments` entries for what the user actually asked to post (e.g. "leave
   the first two comments" means two entries, not every finding).
-- The `— shep (https://github.com/mbillz/shep)` signature goes once, at the end of the
-  top-level `body` - not repeated on every inline comment.
+- Every comment gets the `— [shep](https://github.com/mbillz/shep)` signature at the
+  end (a markdown link, not a plain URL) - the top-level `body` *and* each individual
+  inline comment, so each one is traceable back to this repo on its own.
 - If asked for a plain comment with no verdict, use `event: "COMMENT"` and an empty or
-  omitted `comments` array with just the body text.
+  omitted `comments` array with just the body text (still signed).
