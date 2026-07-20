@@ -154,11 +154,13 @@ fn poll_once(config: &Config) -> anyhow::Result<(usize, usize)> {
     Ok((checked, triggered_count))
 }
 
-/// Closes the window and removes the worktree for any Reviewed PR that's
-/// both past `cleanup_after_days` and confirmed merged/closed on GitHub.
-/// Still-open PRs are left alone no matter how old - only a merged/closed
-/// state plus the grace period together trigger cleanup, so a window isn't
-/// closed out from under someone still using it right when a PR merges.
+/// Closes the window and removes the worktree for any tracked PR (reviewing
+/// or reviewed - a stuck "reviewing" entry with a dead window is just as
+/// worth cleaning up) that's either (a) approved - checked every poll, no
+/// grace period, since an approval is a clear enough "done here" signal on
+/// its own - or (b) both past `cleanup_after_days` and confirmed
+/// merged/closed on GitHub. Still-open, unapproved PRs are left alone no
+/// matter how old.
 fn cleanup_stale(config: &Config) -> anyhow::Result<()> {
     if config.cleanup_after_days == 0 {
         return Ok(());
@@ -168,30 +170,39 @@ fn cleanup_stale(config: &Config) -> anyhow::Result<()> {
 
     let mut candidates = Vec::new();
     for (key, entry) in state.entries() {
-        if entry.status != state::Status::Reviewed {
-            continue;
-        }
-        let Ok(reviewed_at) = chrono::DateTime::parse_from_rfc3339(&entry.reviewed_at) else {
-            continue;
-        };
-        if reviewed_at.with_timezone(&chrono::Local) > cutoff {
-            continue;
-        }
         let Some((owner, repo, number)) = state::parse_key(key) else {
             continue;
         };
-        candidates.push((key.clone(), PrRef { owner, repo, number }, entry.window_id.clone()));
+        let past_grace_period = chrono::DateTime::parse_from_rfc3339(&entry.reviewed_at)
+            .map(|t| t.with_timezone(&chrono::Local) <= cutoff)
+            .unwrap_or(false);
+        candidates.push((
+            key.clone(),
+            PrRef { owner, repo, number },
+            entry.window_id.clone(),
+            past_grace_period,
+        ));
     }
 
     let mut cleaned = 0;
-    for (key, pr, window_id) in candidates {
-        match github::pr_is_open(&pr) {
-            Ok(true) => continue,
-            Ok(false) => {}
+    for (key, pr, window_id, past_grace_period) in candidates {
+        let should_clean = match github::already_approved(&pr) {
+            Ok(true) => true,
+            Ok(false) if !past_grace_period => false,
+            Ok(false) => match github::pr_is_open(&pr) {
+                Ok(open) => !open,
+                Err(e) => {
+                    eprintln!("could not check GitHub state for {}: {e:#}", pr.full_ref());
+                    false
+                }
+            },
             Err(e) => {
-                eprintln!("could not check GitHub state for {}: {e:#}", pr.full_ref());
-                continue;
+                eprintln!("could not check approval state for {}: {e:#}", pr.full_ref());
+                false
             }
+        };
+        if !should_clean {
+            continue;
         }
 
         if let Some(w) = &window_id {
@@ -213,7 +224,7 @@ fn cleanup_stale(config: &Config) -> anyhow::Result<()> {
 
     if cleaned > 0 {
         state.save()?;
-        println!("\u{1f415} cleaned up {cleaned} merged/closed PR(s)");
+        println!("\u{1f415} cleaned up {cleaned} approved/merged/closed PR(s)");
     }
     Ok(())
 }

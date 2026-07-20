@@ -21,8 +21,11 @@ v1 status: single-machine, foreground daemon.
    the first message.
 4. Once the turn finishes, it fires a system notification. The session stays open and
    interactive - keep talking to it, or tell it to post the review to GitHub.
-5. Once a PR is merged/closed on GitHub and its review has been sitting done for a
-   few days, shep closes the window and removes the local worktree automatically.
+5. Once a PR is approved (by anyone), shep closes the window and removes the local
+   worktree right away - no need to keep it around. If it's merged/closed instead
+   (without ever being approved), the same cleanup happens after a grace period
+   (`cleanup_after_days`, default 3) instead of immediately, in case you're still
+   using the window.
 
 ## Setup
 
@@ -73,7 +76,15 @@ another multiplexer like herdr - tmux doesn't care what's hosting its terminal.
 The skill only drafts by default (summary, split-PR check, ranked findings, verdict,
 draft comments) - it never posts on its own. Once you've read the draft, just tell the
 agent what to do ("post this", "leave the first two comments", "approve it") and it'll
-run the appropriate `gh pr review`/`gh pr comment` itself - it already has `gh` access.
+submit a real GitHub review via the Reviews API - line comments land as actual inline
+comments anchored to the code, not a wall of text in one PR-level comment. The overall
+review body is signed `— shep (https://github.com/mbillz/shep)` so it's clear which
+comments came from it.
+
+The skill is instructed to write in a specific voice (casual, direct, backtick-quoted
+identifiers, comfortable punting non-blocking stuff to a follow-up) grounded in real
+review comments pulled from this account's own history - not generic AI-reviewer
+phrasing. See `skills/principal-review/SKILL.md` if you want to tune it further.
 
 ## Known limitations / things worth knowing
 
