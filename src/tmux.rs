@@ -54,6 +54,16 @@ pub fn ensure_session(session: &str, cwd: &Path) -> Result<()> {
     create_window(session, cwd, "idle").map(|_| ())
 }
 
+/// Whether `window_id` still exists - used to tell a genuinely in-progress
+/// review apart from one whose window got closed (e.g. killed by hand).
+pub fn window_exists(window_id: &str) -> bool {
+    Command::new("tmux")
+        .args(["list-panes", "-t", window_id])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 /// Writes literal text into the window without submitting it.
 pub fn send_text(window_id: &str, text: &str) -> Result<()> {
     run_tmux(&["send-keys", "-t", window_id, text]).map(|_| ())

@@ -117,11 +117,16 @@ fn cmd_review(repo: &str, number: u64) -> Result<()> {
     );
 
     let mut state = State::load_or_default()?;
-    state.mark_reviewed(&owner, &name, number, &triggered.details.head_sha);
+    state.mark_reviewing(&owner, &name, number, &triggered.details.head_sha, &triggered.window_id);
     state.save()?;
 
     println!("waiting for the review to finish...");
     review::await_and_notify(&pr, &triggered, Duration::from_secs(900))?;
+
+    let mut state = State::load_or_default()?;
+    state.mark_reviewed(&owner, &name, number, &triggered.details.head_sha);
+    state.save()?;
+
     println!(
         "\u{1f415} review ready - `tmux attach -t {}` to see it",
         config.tmux_session
@@ -151,7 +156,15 @@ fn cmd_status() -> Result<()> {
         println!("  (none yet)");
     }
     for (key, entry) in entries {
-        println!("  {key}  sha={}  reviewed_at={}", &entry.last_sha[..entry.last_sha.len().min(8)], entry.reviewed_at);
+        let status = match entry.status {
+            state::Status::Reviewing => "reviewing",
+            state::Status::Reviewed => "reviewed",
+        };
+        println!(
+            "  {key}  {status}  sha={}  at={}",
+            &entry.last_sha[..entry.last_sha.len().min(8)],
+            entry.reviewed_at
+        );
     }
 
     Ok(())

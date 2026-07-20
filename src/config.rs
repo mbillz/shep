@@ -26,6 +26,10 @@ pub struct Config {
     /// keeps the daemon focused on recent activity instead of every PR
     /// you've ever been asked to review.
     pub lookback_days: u32,
+    /// Cap on reviews triggered in a single poll - a backlog of review
+    /// requests (e.g. after being away) gets spread across multiple poll
+    /// cycles instead of firing all at once.
+    pub max_triggers_per_poll: usize,
     #[serde(rename = "repos")]
     pub repos: Vec<RepoRef>,
 }
@@ -38,6 +42,7 @@ impl Default for Config {
             tmux_session: "shep".to_string(),
             repo_clone_root: "~/.cache/shep/repos".to_string(),
             lookback_days: 1,
+            max_triggers_per_poll: 3,
             repos: Vec::new(),
         }
     }
