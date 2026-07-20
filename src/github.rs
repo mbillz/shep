@@ -1,5 +1,6 @@
 use crate::config::Config;
 use anyhow::{anyhow, bail, Context, Result};
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::process::Command;
 
@@ -61,19 +62,61 @@ fn run_gh(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-/// `updated:>=<cutoff>` restricts the search to PRs with recent activity
-/// (new commits, comments, or the review request itself) rather than every
-/// open PR the user has ever been asked to review.
+/// `updated:>=<cutoff>` here is a cheap pre-filter, not the real check (see
+/// `review_requested_at`) - it just bounds how many PRs need the more
+/// expensive per-PR timeline lookup. Safe to use for that: adding a reviewer
+/// always bumps a PR's `updated_at` to at least the request time (verified
+/// against real data), so this can never exclude a PR that was genuinely
+/// tagged within the window, only include some extra ones that get filtered
+/// out precisely afterward.
 fn build_search_query(lookback_days: u32) -> String {
     let cutoff = (chrono::Utc::now() - chrono::Duration::days(lookback_days.into()))
         .format("%Y-%m-%dT%H:%M:%SZ");
     format!("q=is:pr is:open review-requested:@me updated:>={cutoff}")
 }
 
-/// Lists open PRs where the authenticated user is a requested reviewer,
-/// updated within `config.lookback_days`, filtered down to the repos in the
-/// config allowlist.
+pub fn current_user() -> Result<String> {
+    let raw = run_gh(&["api", "user", "--jq", ".login"])?;
+    Ok(raw.trim().to_string())
+}
+
+/// The most recent time `username` was requested as a reviewer on this PR,
+/// via the issue timeline API - the precise signal for "when was I tagged,"
+/// as opposed to `updated_at` which also moves on unrelated activity like
+/// new commits or comments. `username` is safe to interpolate directly into
+/// the jq filter: GitHub usernames are restricted to alphanumerics/hyphens,
+/// so no quoting/injection concern.
+fn review_requested_at(pr: &PrRef, username: &str) -> Result<Option<DateTime<Utc>>> {
+    let raw = run_gh(&[
+        "api",
+        &format!(
+            "repos/{}/{}/issues/{}/timeline",
+            pr.owner, pr.repo, pr.number
+        ),
+        "--paginate",
+        "--jq",
+        &format!(
+            r#".[] | select(.event == "review_requested" and .requested_reviewer.login == "{username}") | .created_at"#
+        ),
+    ])?;
+    Ok(latest_timestamp(&raw))
+}
+
+fn latest_timestamp(raw: &str) -> Option<DateTime<Utc>> {
+    raw.lines()
+        .filter_map(|line| DateTime::parse_from_rfc3339(line.trim()).ok())
+        .map(|dt| dt.with_timezone(&Utc))
+        .max()
+}
+
+/// Lists open PRs where the authenticated user was requested as a reviewer
+/// within `config.lookback_days` - checked precisely per PR via
+/// `review_requested_at`, not just "the PR had some recent activity" -
+/// filtered down to the repos in the config allowlist.
 pub fn list_review_requested(config: &Config) -> Result<Vec<PrRef>> {
+    let username = current_user()?;
+    let cutoff = Utc::now() - chrono::Duration::days(config.lookback_days.into());
+
     let query = build_search_query(config.lookback_days);
     let raw = run_gh(&["api", "-X", "GET", "search/issues", "-f", &query])?;
     let parsed: SearchResponse =
@@ -82,12 +125,25 @@ pub fn list_review_requested(config: &Config) -> Result<Vec<PrRef>> {
     let mut prs = Vec::new();
     for item in parsed.items {
         let (owner, repo) = owner_repo_from_repository_url(&item.repository_url)?;
-        if config.contains_repo(&owner, &repo) {
-            prs.push(PrRef {
-                owner,
-                repo,
-                number: item.number,
-            });
+        if !config.contains_repo(&owner, &repo) {
+            continue;
+        }
+        let pr = PrRef {
+            owner,
+            repo,
+            number: item.number,
+        };
+        match review_requested_at(&pr, &username) {
+            // Couldn't pin down when (e.g. a team-based review request
+            // rather than a direct one) - include it rather than risk
+            // silently hiding something the user was genuinely tagged on.
+            Ok(None) => prs.push(pr),
+            Ok(Some(requested_at)) if requested_at >= cutoff => prs.push(pr),
+            Ok(Some(_)) => {}
+            Err(e) => eprintln!(
+                "skipping {}: could not check review-request time: {e:#}",
+                pr.full_ref()
+            ),
         }
     }
     Ok(prs)
@@ -123,6 +179,20 @@ mod tests {
         let query = build_search_query(1);
         assert!(query.contains("is:pr is:open review-requested:@me"));
         assert!(query.contains("updated:>="));
+    }
+
+    #[test]
+    fn latest_timestamp_picks_the_max_across_lines() {
+        // `gh api --jq` outputs raw (unquoted) strings, like `jq -r` -
+        // verified live against a real timeline response.
+        let raw = "2026-07-15T18:57:32Z\n2026-07-10T21:04:46Z\n";
+        let latest = latest_timestamp(raw).unwrap();
+        assert_eq!(latest.to_rfc3339(), "2026-07-15T18:57:32+00:00");
+    }
+
+    #[test]
+    fn latest_timestamp_none_when_empty() {
+        assert!(latest_timestamp("").is_none());
     }
 
     #[test]
