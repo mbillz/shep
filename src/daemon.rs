@@ -39,10 +39,19 @@ fn acquire_lock() -> anyhow::Result<()> {
         .with_context(|| format!("writing {}", lock_path.display()))
 }
 
+const BANNER: &str = r"
+   / \__        ____  _   _ _____ ____
+  (    @\___   / ___|| | | | ____|  _ \
+  /         O  \___ \| |_| |  _| | |_) |
+ /   (_____/    ___) |  _  | |___|  __/
+/_____/   U    |____/|_| |_|_____|_|
+";
+
 /// Polls allowlisted repos for review requests every `poll_interval_secs`;
 /// each triggered review is watched for completion on its own thread so a
 /// slow one doesn't stall the next poll.
 pub fn run(config: &Config) -> anyhow::Result<()> {
+    println!("{BANNER}");
     acquire_lock()?;
     if config.repos.is_empty() {
         eprintln!(
