@@ -16,10 +16,13 @@ fn acquire_lock() -> anyhow::Result<()> {
     let lock_path = paths::state_dir()?.join("daemon.pid");
     if let Ok(existing) = std::fs::read_to_string(&lock_path) {
         if let Ok(pid) = existing.trim().parse::<u32>() {
+            // .output() (not .status()) so "kill: N: No such process" for a
+            // stale/dead pid is captured and discarded instead of leaking to
+            // the terminal - the exit status alone is all that's needed.
             let alive = std::process::Command::new("kill")
                 .args(["-0", &pid.to_string()])
-                .status()
-                .map(|s| s.success())
+                .output()
+                .map(|o| o.status.success())
                 .unwrap_or(false);
             if alive {
                 bail!(
