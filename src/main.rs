@@ -20,8 +20,9 @@ use std::time::Duration;
 #[derive(Parser)]
 #[command(name = "shep", about = "Auto-launches principal-engineer PR reviews in tmux")]
 struct Cli {
+    /// Defaults to `daemon` if omitted.
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -42,7 +43,7 @@ enum Command {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    match cli.command {
+    match cli.command.unwrap_or(Command::Daemon) {
         Command::Init => cmd_init(),
         Command::Review { repo, number } => cmd_review(&repo, number),
         Command::Daemon => cmd_daemon(),
