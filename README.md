@@ -1,5 +1,13 @@
 # shep
 
+```
+   / \__        ____  _   _ _____ ____
+  (    @\___   / ___|| | | | ____|  _ \
+  /         O  \___ \| |_| |  _| | |_) |
+ /   (_____/    ___) |  _  | |___|  __/
+/_____/   U    |____/|_| |_|_____|_|
+```
+
 Watches GitHub for pull requests where you're a requested reviewer and automatically
 opens a tmux window per PR, launches Claude Code in it running a "principal engineer"
 review skill, and notifies you when the review is ready. You get a row of windows to
