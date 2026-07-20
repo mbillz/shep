@@ -44,6 +44,16 @@ pub fn create_window(session: &str, cwd: &Path, label: &str) -> Result<String> {
     run_tmux(&args)
 }
 
+/// Makes sure the session exists (with an idle placeholder window) even
+/// before any review has been triggered, so `tmux attach -t <session>`
+/// works right away. No-op if it already exists.
+pub fn ensure_session(session: &str, cwd: &Path) -> Result<()> {
+    if session_exists(session) {
+        return Ok(());
+    }
+    create_window(session, cwd, "idle").map(|_| ())
+}
+
 /// Writes literal text into the window without submitting it.
 pub fn send_text(window_id: &str, text: &str) -> Result<()> {
     run_tmux(&["send-keys", "-t", window_id, text]).map(|_| ())

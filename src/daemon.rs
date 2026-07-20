@@ -1,7 +1,9 @@
 use crate::config::Config;
 use crate::github;
+use crate::paths;
 use crate::review;
 use crate::state::State;
+use crate::tmux;
 use std::time::Duration;
 
 /// Polls allowlisted repos for review requests every `poll_interval_secs`;
@@ -14,6 +16,7 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
             Config::path()?.display()
         );
     }
+    tmux::ensure_session(&config.tmux_session, &paths::home_dir()?)?;
 
     loop {
         let now = chrono::Local::now().format("%H:%M:%S");

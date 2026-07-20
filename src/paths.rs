@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
-fn home_dir() -> Result<PathBuf> {
+pub fn home_dir() -> Result<PathBuf> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .context("HOME environment variable is not set")
