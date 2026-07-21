@@ -69,15 +69,20 @@ name = "your-repo"
 ## Usage
 
 ```
+shep watch                   # start the daemon in tmux (if not already) and attach
 shep review owner/repo 123   # review one PR right now, waits for it to finish
-shep daemon                  # foreground poll loop over the allowlist
+shep daemon                  # foreground poll loop over the allowlist, no tmux self-entry
 shep status                  # what's tracked in the dedup state file
 ```
 
 Reviews happen in a tmux session named `shep` (configurable via `tmux_session` in
-config). `tmux attach -t shep` to look in on it from anywhere, including from inside
-another multiplexer like herdr - tmux doesn't care what's hosting its terminal.
-`Ctrl-b d` to detach without killing it.
+config). `shep watch` is the easiest way in: it starts the daemon in a `daemon` window
+of that session (skipping this if one's already running) and then attaches you to it,
+so you land in tab 0 watching it poll and each triggered review opens as a new tab
+right there alongside it. You can also `tmux attach -t shep` by hand from anywhere,
+including from inside another multiplexer like herdr - tmux doesn't care what's
+hosting its terminal. `Ctrl-b d` to detach without killing it (the daemon and any open
+review windows keep running).
 
 ## Posting to GitHub
 

@@ -54,6 +54,50 @@ pub fn ensure_session(session: &str, cwd: &Path) -> Result<()> {
     create_window(session, cwd, "idle").map(|_| ())
 }
 
+/// True if the session has a window with this name.
+pub fn window_named_exists(session: &str, name: &str) -> bool {
+    Command::new("tmux")
+        .args(["list-windows", "-t", session, "-F", "#{window_name}"])
+        .output()
+        .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).lines().any(|l| l == name))
+        .unwrap_or(false)
+}
+
+/// Single-quotes `s` for use as one word in a shell command line.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// Creates a window that runs `command` instead of sitting at an idle shell
+/// - used for the daemon's own window so `shep watch` can show it polling
+/// in tab 0. `remain-on-exit` keeps the window (and its output) around if
+/// the command exits instead of the window just vanishing.
+pub fn create_command_window(session: &str, cwd: &Path, label: &str, command: &str) -> Result<String> {
+    let cwd_str = cwd.to_str().context("path is not valid UTF-8")?;
+    let quoted = shell_quote(command);
+    let args: Vec<&str> = if session_exists(session) {
+        vec![
+            "new-window", "-t", session, "-n", label, "-c", cwd_str, "-P", "-F", "#{window_id}", &quoted,
+        ]
+    } else {
+        vec![
+            "new-session", "-d", "-s", session, "-n", label, "-c", cwd_str, "-P", "-F", "#{window_id}", &quoted,
+        ]
+    };
+    let window_id = run_tmux(&args)?;
+    run_tmux(&["set-window-option", "-t", &window_id, "remain-on-exit", "on"])?;
+    Ok(window_id)
+}
+
+/// Replaces the current process with `tmux attach -t session`, landing the
+/// caller directly inside the session instead of leaving it as a bystander
+/// foreground process printing to its own terminal.
+pub fn attach(session: &str) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let err = Command::new("tmux").args(["attach-session", "-t", session]).exec();
+    bail!("failed to exec `tmux attach-session -t {session}`: {err}")
+}
+
 pub fn kill_window(window_id: &str) -> Result<()> {
     run_tmux(&["kill-window", "-t", window_id]).map(|_| ())
 }

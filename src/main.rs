@@ -37,6 +37,9 @@ enum Command {
     },
     /// Poll the configured repos in the foreground and review new/updated PRs.
     Daemon,
+    /// Run the daemon inside tmux and attach - polling lives in tab 0,
+    /// each triggered review opens alongside it as you go.
+    Watch,
     /// Show what's currently tracked in the dedup state file.
     Status,
 }
@@ -47,6 +50,7 @@ fn main() -> Result<()> {
         Command::Init => cmd_init(),
         Command::Review { repo, number } => cmd_review(&repo, number),
         Command::Daemon => cmd_daemon(),
+        Command::Watch => cmd_watch(),
         Command::Status => cmd_status(),
     }
 }
@@ -138,6 +142,27 @@ fn cmd_review(repo: &str, number: u64) -> Result<()> {
 fn cmd_daemon() -> Result<()> {
     let config = Config::load_or_default()?;
     daemon::run(&config)
+}
+
+/// Starts (if not already running) a tmux window that runs the daemon, then
+/// attaches to the session - so you land straight in tab 0 watching it poll,
+/// and each triggered review opens as a new tab right there alongside it.
+fn cmd_watch() -> Result<()> {
+    let config = Config::load_or_default()?;
+    let exe = std::env::current_exe().context("resolving shep's own executable path")?;
+    let exe_str = exe.to_str().context("shep's executable path is not valid UTF-8")?;
+
+    if tmux::window_named_exists(&config.tmux_session, "daemon") {
+        println!(
+            "\u{1f415} daemon already running in the '{}' tmux session, attaching...",
+            config.tmux_session
+        );
+    } else {
+        println!("\u{1f415} starting the daemon in the '{}' tmux session...", config.tmux_session);
+        tmux::create_command_window(&config.tmux_session, &paths::home_dir()?, "daemon", exe_str)?;
+    }
+
+    tmux::attach(&config.tmux_session)
 }
 
 fn cmd_status() -> Result<()> {
