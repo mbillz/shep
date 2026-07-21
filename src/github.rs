@@ -72,7 +72,7 @@ fn run_gh(args: &[&str]) -> Result<String> {
 fn build_search_query(lookback_days: u32) -> String {
     let cutoff = (chrono::Utc::now() - chrono::Duration::days(lookback_days.into()))
         .format("%Y-%m-%dT%H:%M:%SZ");
-    format!("q=is:pr is:open review-requested:@me updated:>={cutoff}")
+    format!("q=is:pr is:open draft:false review-requested:@me updated:>={cutoff}")
 }
 
 pub fn current_user() -> Result<String> {
@@ -219,8 +219,15 @@ mod tests {
     #[test]
     fn search_query_includes_updated_cutoff() {
         let query = build_search_query(1);
-        assert!(query.contains("is:pr is:open review-requested:@me"));
+        assert!(query.contains("is:pr is:open"));
+        assert!(query.contains("review-requested:@me"));
         assert!(query.contains("updated:>="));
+    }
+
+    #[test]
+    fn search_query_excludes_draft_prs() {
+        let query = build_search_query(1);
+        assert!(query.contains("draft:false"));
     }
 
     #[test]
