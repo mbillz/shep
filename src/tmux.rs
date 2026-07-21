@@ -112,9 +112,12 @@ pub fn window_exists(window_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Writes literal text into the window without submitting it.
+/// Writes literal text into the window without submitting it. `-l` forces
+/// literal interpretation - without it, tmux treats an argument matching a
+/// key name (e.g. "Enter", "Up", "C-c") as that keypress instead of typing
+/// it, which would matter the day this carries raw PR-derived text.
 pub fn send_text(window_id: &str, text: &str) -> Result<()> {
-    run_tmux(&["send-keys", "-t", window_id, text]).map(|_| ())
+    run_tmux(&["send-keys", "-l", "-t", window_id, text]).map(|_| ())
 }
 
 pub fn send_enter(window_id: &str) -> Result<()> {

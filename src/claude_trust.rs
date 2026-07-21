@@ -9,14 +9,27 @@ use std::path::Path;
 /// PR. Only touches `hasTrustDialogAccepted`; writes atomically since this
 /// is shared global state.
 pub fn ensure_trusted(repo_path: &Path) -> Result<()> {
-    let path = paths::claude_config_file()?;
+    ensure_trusted_at(&paths::claude_config_file()?, repo_path)
+}
+
+/// Does the actual work against an explicit config path, so tests can point
+/// it at a scratch file instead of mutating the real `$HOME`/`~/.claude.json`
+/// (and racing other tests that do the same).
+fn ensure_trusted_at(path: &Path, repo_path: &Path) -> Result<()> {
     let key = repo_path
         .to_str()
         .context("repo path is not valid UTF-8")?
         .to_string();
 
-    let raw = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    // Missing file is treated as `{}` rather than an error - it just means
+    // `claude` has never been run interactively on this machine yet. Not
+    // this function's job to bootstrap a fresh Claude Code install; it only
+    // needs somewhere to record trust once one exists.
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => "{}".to_string(),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
     let mut root: Value =
         serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
 
@@ -44,4 +57,74 @@ pub fn ensure_trusted(repo_path: &Path) -> Result<()> {
     std::fs::rename(&tmp_path, &path)
         .with_context(|| format!("replacing {}", path.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn creates_claude_json_when_missing() {
+        let dir = std::env::temp_dir().join(format!("shep-trust-test-missing-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join(".claude.json");
+
+        ensure_trusted_at(&config_path, Path::new("/some/repo")).unwrap();
+
+        let raw = std::fs::read_to_string(&config_path).unwrap();
+        let root: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(
+            root["projects"]["/some/repo"]["hasTrustDialogAccepted"],
+            Value::Bool(true)
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn preserves_existing_unrelated_config() {
+        let dir = std::env::temp_dir().join(format!("shep-trust-test-existing-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join(".claude.json");
+        std::fs::write(
+            &config_path,
+            r#"{"someOtherSetting": true, "projects": {"/already/trusted": {"hasTrustDialogAccepted": true}}}"#,
+        )
+        .unwrap();
+
+        ensure_trusted_at(&config_path, Path::new("/some/repo")).unwrap();
+
+        let raw = std::fs::read_to_string(&config_path).unwrap();
+        let root: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(root["someOtherSetting"], Value::Bool(true));
+        assert_eq!(
+            root["projects"]["/already/trusted"]["hasTrustDialogAccepted"],
+            Value::Bool(true)
+        );
+        assert_eq!(
+            root["projects"]["/some/repo"]["hasTrustDialogAccepted"],
+            Value::Bool(true)
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn second_call_is_a_noop_once_already_trusted() {
+        let dir = std::env::temp_dir().join(format!("shep-trust-test-idempotent-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join(".claude.json");
+
+        ensure_trusted_at(&config_path, Path::new("/some/repo")).unwrap();
+        ensure_trusted_at(&config_path, Path::new("/some/repo")).unwrap();
+
+        let raw = std::fs::read_to_string(&config_path).unwrap();
+        let root: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(
+            root["projects"]["/some/repo"]["hasTrustDialogAccepted"],
+            Value::Bool(true)
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
