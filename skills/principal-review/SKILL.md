@@ -65,8 +65,21 @@ If there's nothing worth flagging, say so plainly instead of inventing nits to l
 thorough. Keep the exact file and line for each finding - posting later anchors
 comments to these.
 
+Before writing these into the response, draft the findings, then work back through
+each one trying to disprove it: reread the actual lines (not just the diff hunk),
+check for handling elsewhere in the file - a guard, a catch, a test, another call site
+that already covers the case you think is missing. Drop anything that doesn't survive
+this pass, or downgrade it (e.g. blocker -> question) if you're genuinely unsure rather
+than confident it's wrong. A missed nit costs little; a wrong blocker costs credibility
+- only findings that hold up under this second look make it into the final list.
+
 ### Recommended verdict
-One of: Approve / Request changes / Comment, plus a single-sentence reason.
+One of: Approve / Request changes / Comment, plus a single-sentence reason. If it's
+Approve or Request changes, don't just state it and leave it there - close by directly
+asking whether to go ahead and post it now (e.g. "want me to go ahead and approve
+this?" / "want me to go ahead and request changes with these comments?"). Both are
+calls worth confirming out loud in the moment, unlike a plain Comment, where you keep
+waiting as usual for the user to say what to post.
 
 ### Draft comments
 For each finding above severity "nit", a ready-to-paste GitHub review comment in the
